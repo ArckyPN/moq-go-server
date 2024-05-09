@@ -8,15 +8,21 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"facebookexperimental/moq-go-server/moqconnectionmanagment"
 	"facebookexperimental/moq-go-server/moqfwdtable"
 	"facebookexperimental/moq-go-server/moqmessageobjects"
 	"flag"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
-	"github.com/adriancable/webtransport-go"
+	"github.com/quic-go/quic-go"
+	"github.com/quic-go/quic-go/http3"
+	"github.com/quic-go/quic-go/logging"
+	"github.com/quic-go/quic-go/qlog"
+	"github.com/quic-go/webtransport-go"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -38,9 +44,24 @@ func main() {
 	cacheCleanUpPeriodMs := flag.Uint64("cache_cleanup_period_ms", CACHE_CLEAN_UP_PERIOD_MS, "Execute clean up task every (in milliseconds)")
 	httpConnTimeoutMs := flag.Uint64("http_conn_time_out_ms", HTTP_CONNECTION_KEEP_ALIVE_MS, "HTTP connection timeout (in milliseconds)")
 
+	var (
+		err     error
+		tlsCert tls.Certificate
+	)
+
 	flag.Parse()
 
 	log.SetFormatter(&log.TextFormatter{})
+
+	if err = clearQlogDirectory(); err != nil {
+		log.Error("qlog dir: %s\n", err)
+		return
+	}
+
+	if tlsCert, err = tls.LoadX509KeyPair(*tlsCertPath, *tlsKeyPath); err != nil {
+		log.Error("tls: %s\n", err)
+		return
+	}
 
 	// Create moqt obj forward table
 	moqtFwdTable := moqfwdtable.New()
@@ -48,10 +69,43 @@ func main() {
 	// create objects mem storage (relay)
 	objects := moqmessageobjects.New(*cacheCleanUpPeriodMs)
 
+	server := &webtransport.Server{
+		H3: http3.Server{
+			Addr: *listenAddr,
+			QUICConfig: &quic.Config{
+				Tracer: func(ctx context.Context, p logging.Perspective, ci quic.ConnectionID) *logging.ConnectionTracer {
+					var (
+						e    error
+						path string = fmt.Sprintf("%s/data/qlog/%s-%s.qlog", cwd(), p, ci.String())
+						fp   *os.File
+					)
+					if fp, e = createFile(path); e != nil {
+						log.Error("qlog: %s\n", e)
+						panic(e)
+					}
+
+					return qlog.NewConnectionTracer(fp, p, ci)
+				},
+				MaxIdleTimeout: time.Duration(*httpConnTimeoutMs) * time.Millisecond,
+			},
+			TLSConfig: &tls.Config{
+				Certificates: []tls.Certificate{tlsCert},
+			},
+		},
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
+	}
+
 	http.HandleFunc("/moq", func(rw http.ResponseWriter, r *http.Request) {
-		session := r.Body.(*webtransport.Session)
-		session.AcceptSession()
-		// session.RejectSession(400)
+		var (
+			session *webtransport.Session
+		)
+
+		if session, err = server.Upgrade(rw, r); err != nil {
+			log.Error("tls: %s\n", err)
+			return
+		}
 
 		namespace := r.URL.Path
 		log.Info(fmt.Sprintf("%s - Accepted incoming WebTransport session. rawQuery: %s", namespace, r.URL.RawQuery))
@@ -59,21 +113,10 @@ func main() {
 		moqconnectionmanagment.MoqConnectionManagment(session, namespace, moqtFwdTable, objects, *objExpMs)
 	})
 
-	server := &webtransport.Server{
-		ListenAddr: *listenAddr,
-		TLSCert:    webtransport.CertFile{Path: *tlsCertPath},
-		TLSKey:     webtransport.CertFile{Path: *tlsKeyPath},
-		QuicConfig: &webtransport.QuicConfig{
-			KeepAlivePeriod: time.Duration(*httpConnTimeoutMs/1000) * time.Second,
-			MaxIdleTimeout:  time.Duration(3*(*httpConnTimeoutMs/1000)) * time.Second,
-		},
-	}
-
-	log.Info("Launching WebTransport server at: ", server.ListenAddr)
-	ctx, cancel := context.WithCancel(context.Background())
-	if err := server.Run(ctx); err != nil {
+	log.Info("Launching WebTransport server at: ", server.H3.Addr)
+	if err := server.ListenAndServe(); err != nil {
 		log.Error(fmt.Sprintf("Server error: %s", err))
-		cancel()
+		return
 	}
 
 	objects.Stop()

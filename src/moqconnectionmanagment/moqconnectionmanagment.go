@@ -16,8 +16,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/adriancable/webtransport-go"
-	"github.com/quic-go/quic-go"
+	"github.com/quic-go/webtransport-go"
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -26,7 +25,7 @@ import (
 func MoqConnectionManagment(session *webtransport.Session, namespace string, moqtFwdTable *moqfwdtable.MoqFwdTable, objects *moqmessageobjects.MoqMessageObjects, objExpMs uint64) {
 
 	// Accept bidirectional streams (control stream)
-	stream, err := session.AcceptStream()
+	stream, err := session.AcceptStream(session.Context())
 	if err != nil {
 		log.Error(fmt.Sprintf("%s - Accepting bidirectional CONTROL stream. Err: %v", namespace, err))
 		return
@@ -137,7 +136,7 @@ func MoqConnectionManagment(session *webtransport.Session, namespace string, moq
 }
 
 func terminateSessionWithError(session *webtransport.Session, errMoq moqhelpers.MoqError) {
-	session.CloseWithError(quic.ApplicationErrorCode(errMoq.ErrCode), errMoq.ErrMsg)
+	session.CloseWithError(webtransport.SessionErrorCode(errMoq.ErrCode), errMoq.ErrMsg)
 }
 
 func createObjectCacheKey(trackNamespace string, trackName string, moqObjectHeader moqobject.MoqObjectHeader) string {
@@ -407,7 +406,7 @@ func startListeningObjects(session *webtransport.Session, moqSession *moqsession
 		log.Info(fmt.Sprintf("%s(%v) - Accepting incoming uni stream", moqSession.UniqueName, uniStream.StreamID()))
 
 		go func(uniStream *webtransport.ReceiveStream, session *webtransport.Session, moqtFwdTable *moqfwdtable.MoqFwdTable) {
-			moqMsg, moqMsgType, moqMsgErr := moqhelpers.ReceiveMessage(uniStream)
+			moqMsg, moqMsgType, moqMsgErr := moqhelpers.ReceiveMessage(*uniStream)
 			if moqMsgErr != nil {
 				log.Error(fmt.Sprintf("%s - Receiving OBJECT message. Err: %v", moqSession.UniqueName, moqMsgErr))
 				return
@@ -440,7 +439,7 @@ func startListeningObjects(session *webtransport.Session, moqSession *moqsession
 			// Notify new cache key
 			moqtFwdTable.ReceivedObject(cacheKey)
 
-			errObjPayload := moqhelpers.ReadObjPayloadToEOS(uniStream, moqObj)
+			errObjPayload := moqhelpers.ReadObjPayloadToEOS(*uniStream, moqObj)
 			if errObjPayload != nil {
 				log.Error(fmt.Sprintf("%s(%v) - Error receiving obj payload. Err: %v", moqSession.UniqueName, (*uniStream).StreamID(), errObjPayload))
 				return
@@ -472,7 +471,7 @@ func startForwardingObjects(session *webtransport.Session, moqSession *moqsessio
 						log.Error(fmt.Sprintf("%s(-) - Opening stream to send OBJECT %s", moqSession.UniqueName, moqObj.GetDebugStr()))
 					} else {
 						log.Info(fmt.Sprintf("%s(%v) - Sending OBJECT %s", moqSession.UniqueName, sUni.StreamID(), moqObj.GetDebugStr()))
-						errSendObj := moqhelpers.SendObject(&sUni, moqObj)
+						errSendObj := moqhelpers.SendObject(sUni, moqObj)
 						if errSendObj != nil {
 							log.Error(fmt.Sprintf("%s(%v) - Sending OBJECT %s. Err: %v", moqSession.UniqueName, sUni.StreamID(), moqObj.GetDebugStr(), errSendObj))
 						} else {
