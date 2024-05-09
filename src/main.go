@@ -23,13 +23,11 @@ import (
 
 // Default parameters
 const HTTP_SERVER_LISTEN_ADDR = ":4433"
-const TLS_CERT_FILEPATH = "../certs/certificate.pem"
-const TLS_KEY_FILEPATH = "../certs/certificate.key"
+const TLS_CERT_FILEPATH = "../../cert/localhost.pem"
+const TLS_KEY_FILEPATH = "../../cert/localhost-key.pem"
 const OBJECT_EXPIRATION_MS = 3 * 60 * 1000
 const CACHE_CLEAN_UP_PERIOD_MS = 10 * 1000
 const HTTP_CONNECTION_KEEP_ALIVE_MS = 10 * 1000
-
-// Main function
 
 func main() {
 	// Parse params
