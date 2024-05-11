@@ -10,21 +10,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func cwd() (p string) {
-	var (
-		err   error
-		parts []string
-	)
-	if p, err = os.Getwd(); err != nil {
-		log.Fatal("Error: reading cwd")
-	}
-
-	parts = strings.Split(p, "/")
-	p = strings.Join(parts[:len(parts)-2], "/")
-
-	return
-}
-
 func getDirectoryOfFile(path string) string {
 	var (
 		parts []string = strings.Split(path, "/")
@@ -61,9 +46,9 @@ func createFile(path string) (fp *os.File, err error) {
 	return
 }
 
-func clearQlogDirectory() (err error) {
+func clearQlogDirectory(dataDir string) (err error) {
 	var (
-		path string = fmt.Sprintf("%s/data/qlog", cwd())
+		path string = fmt.Sprintf("%s/qlog", dataDir)
 	)
 
 	err = os.RemoveAll(path)

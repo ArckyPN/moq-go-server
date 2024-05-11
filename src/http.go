@@ -3,12 +3,11 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"fmt"
 	"log"
 	"net/http"
 )
 
-func ServeHTTP() {
+func ServeHTTP(staticDir string) {
 	var (
 		err     error
 		addr    *string = flag.String("addr", ":8080", "the address to listen on, default :8080")
@@ -26,7 +25,7 @@ func ServeHTTP() {
 	}
 
 	// static file host
-	handler.Handle("/", http.FileServer(http.Dir(fmt.Sprintf("%s/moq-client", cwd()))))
+	handler.Handle("/", http.FileServer(http.Dir(staticDir)))
 
 	handler.HandleFunc("/bandwidth/{method}", func(w http.ResponseWriter, r *http.Request) {
 		var (

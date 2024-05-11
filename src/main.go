@@ -34,6 +34,8 @@ const TLS_KEY_FILEPATH = "../../cert/localhost-key.pem"
 const OBJECT_EXPIRATION_MS = 3 * 60 * 1000
 const CACHE_CLEAN_UP_PERIOD_MS = 10 * 1000
 const HTTP_CONNECTION_KEEP_ALIVE_MS = 10 * 1000
+const STATIC_DIRECTORY = "../../moq-client"
+const DATA_DIRECTORY = "../../data"
 
 func main() {
 	// Parse params
@@ -43,17 +45,18 @@ func main() {
 	objExpMs := flag.Uint64("obj_exp_ms", OBJECT_EXPIRATION_MS, "Object TTL in this server (in milliseconds)")
 	cacheCleanUpPeriodMs := flag.Uint64("cache_cleanup_period_ms", CACHE_CLEAN_UP_PERIOD_MS, "Execute clean up task every (in milliseconds)")
 	httpConnTimeoutMs := flag.Uint64("http_conn_time_out_ms", HTTP_CONNECTION_KEEP_ALIVE_MS, "HTTP connection timeout (in milliseconds)")
+	staticDir := flag.String("static", STATIC_DIRECTORY, "path to directory to host static files")
+	dataDir := flag.String("data", DATA_DIRECTORY, "path to data directory for output")
+	flag.Parse()
 
 	var (
 		err     error
 		tlsCert tls.Certificate
 	)
 
-	flag.Parse()
-
 	log.SetFormatter(&log.TextFormatter{})
 
-	if err = clearQlogDirectory(); err != nil {
+	if err = clearQlogDirectory(*dataDir); err != nil {
 		log.Error(fmt.Sprintf("qlog dir: %s\n", err))
 		return
 	}
@@ -76,7 +79,7 @@ func main() {
 				Tracer: func(ctx context.Context, p logging.Perspective, ci quic.ConnectionID) *logging.ConnectionTracer {
 					var (
 						e    error
-						path string = fmt.Sprintf("%s/data/qlog/%s-%s.qlog", cwd(), p, ci.String())
+						path string = fmt.Sprintf("%s/qlog/%s-%s.qlog", *dataDir, p, ci.String())
 						fp   *os.File
 					)
 					if fp, e = createFile(path); e != nil {
@@ -113,7 +116,7 @@ func main() {
 		moqconnectionmanagment.MoqConnectionManagment(session, namespace, moqtFwdTable, objects, *objExpMs)
 	})
 
-	go ServeHTTP()
+	go ServeHTTP(*staticDir)
 
 	log.Info("Launching WebTransport server at: ", server.H3.Addr)
 	if err := server.ListenAndServe(); err != nil {

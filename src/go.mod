@@ -10,6 +10,7 @@ require (
 )
 
 require (
+	github.com/francoispqt/gojay v1.2.13 // indirect
 	github.com/go-task/slim-sprig v0.0.0-20230315185526-52ccab3ef572 // indirect
 	github.com/google/pprof v0.0.0-20231212022811-ec68065c825e // indirect
 	github.com/marten-seemann/qpack v0.3.0 // indirect
