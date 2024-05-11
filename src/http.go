@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 )
@@ -18,7 +19,7 @@ func ServeHTTP() {
 	handler = &http.ServeMux{}
 
 	// static file host
-	handler.Handle("/", http.FileServer(http.Dir(".")))
+	handler.Handle("/", http.FileServer(http.Dir(fmt.Sprintf("%s/moq-client", cwd()))))
 
 	server = http.Server{
 		Addr:    *addr,
