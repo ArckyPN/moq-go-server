@@ -54,12 +54,12 @@ func main() {
 	log.SetFormatter(&log.TextFormatter{})
 
 	if err = clearQlogDirectory(); err != nil {
-		log.Error("qlog dir: %s\n", err)
+		log.Error(fmt.Sprintf("qlog dir: %s\n", err))
 		return
 	}
 
 	if tlsCert, err = tls.LoadX509KeyPair(*tlsCertPath, *tlsKeyPath); err != nil {
-		log.Error("tls: %s\n", err)
+		log.Error(fmt.Sprintf("tls: %s\n", err))
 		return
 	}
 
@@ -80,7 +80,7 @@ func main() {
 						fp   *os.File
 					)
 					if fp, e = createFile(path); e != nil {
-						log.Error("qlog: %s\n", e)
+						log.Error(fmt.Sprintf("qlog: %s\n", e))
 						panic(e)
 					}
 
@@ -103,7 +103,7 @@ func main() {
 		)
 
 		if session, err = server.Upgrade(rw, r); err != nil {
-			log.Error("tls: %s\n", err)
+			log.Error(fmt.Sprintf("tls: %s\n", err))
 			return
 		}
 
