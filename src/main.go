@@ -113,6 +113,8 @@ func main() {
 		moqconnectionmanagment.MoqConnectionManagment(session, namespace, moqtFwdTable, objects, *objExpMs)
 	})
 
+	go ServeHTTP()
+
 	log.Info("Launching WebTransport server at: ", server.H3.Addr)
 	if err := server.ListenAndServe(); err != nil {
 		log.Error(fmt.Sprintf("Server error: %s", err))
