@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -65,6 +67,31 @@ func clearQlogDirectory() (err error) {
 	)
 
 	err = os.RemoveAll(path)
+
+	return
+}
+
+func readToEOF(reader io.Reader) (buf []byte, err error) {
+	var (
+		b    []byte = make([]byte, 64*1024)
+		size int
+	)
+
+	for {
+		if size, err = reader.Read(b); size > 0 {
+			buf = append(buf, b[:size]...)
+		}
+
+		if errors.Is(err, io.EOF) {
+			err = nil
+			break
+		}
+
+		if err != nil {
+			log.Printf("Error: %s\n", err)
+			return
+		}
+	}
 
 	return
 }
