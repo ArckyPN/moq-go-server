@@ -7,6 +7,15 @@ import (
 	"net/http"
 )
 
+func Cors(fs http.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Access-Control-Allow-Origin", "*")
+		w.Header().Add("Cross-Origin-Opener-Policy", "same-origin")
+		w.Header().Add("Cross-Origin-Embedder-Policy", "require-corp")
+		fs.ServeHTTP(w, r)
+	}
+}
+
 func ServeHTTP(staticDir string) {
 	var (
 		err     error
@@ -24,8 +33,9 @@ func ServeHTTP(staticDir string) {
 		return
 	}
 
+
 	// static file host
-	handler.Handle("/", http.FileServer(http.Dir(staticDir)))
+	handler.Handle("/", Cors(http.FileServer(http.Dir(staticDir))))
 
 	handler.HandleFunc("/bandwidth/{method}", func(w http.ResponseWriter, r *http.Request) {
 		var (
