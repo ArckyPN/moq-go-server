@@ -1,4 +1,4 @@
-package main
+package awt
 
 import (
 	"errors"
@@ -32,7 +32,7 @@ func createPathToFile(path string) (err error) {
 	return
 }
 
-func createFile(path string) (fp *os.File, err error) {
+func CreateFile(path string) (fp *os.File, err error) {
 	if err = createPathToFile(path); err != nil {
 		log.Printf("Error: %s\n", err)
 		return
@@ -46,7 +46,7 @@ func createFile(path string) (fp *os.File, err error) {
 	return
 }
 
-func clearQlogDirectory(dataDir string) (err error) {
+func ClearQlogDirectory(dataDir string) (err error) {
 	var (
 		path string = fmt.Sprintf("%s/qlog", dataDir)
 	)

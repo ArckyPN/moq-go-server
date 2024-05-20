@@ -1,4 +1,4 @@
-package main
+package awt
 
 import (
 	"encoding/json"
@@ -32,7 +32,6 @@ func ServeHTTP(staticDir string) {
 		log.Printf("Error: %s\n", err)
 		return
 	}
-
 
 	// static file host
 	handler.Handle("/", Cors(http.FileServer(http.Dir(staticDir))))
