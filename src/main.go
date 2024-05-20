@@ -9,6 +9,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"facebookexperimental/moq-go-server/awt"
 	"facebookexperimental/moq-go-server/moqconnectionmanagment"
 	"facebookexperimental/moq-go-server/moqfwdtable"
 	"facebookexperimental/moq-go-server/moqmessageobjects"
@@ -50,13 +51,14 @@ func main() {
 	flag.Parse()
 
 	var (
-		err     error
-		tlsCert tls.Certificate
+		err          error
+		tlsCert      tls.Certificate
+		allQlogPaths []string
 	)
 
 	log.SetFormatter(&log.TextFormatter{})
 
-	if err = clearQlogDirectory(*dataDir); err != nil {
+	if err = awt.ClearQlogDirectory(*dataDir); err != nil {
 		log.Error(fmt.Sprintf("qlog dir: %s\n", err))
 		return
 	}
@@ -82,10 +84,12 @@ func main() {
 						path string = fmt.Sprintf("%s/qlog/%s-%s.qlog", *dataDir, p, ci.String())
 						fp   *os.File
 					)
-					if fp, e = createFile(path); e != nil {
+					if fp, e = awt.CreateFile(path); e != nil {
 						log.Error(fmt.Sprintf("qlog: %s\n", e))
 						panic(e)
 					}
+
+					allQlogPaths = append(allQlogPaths, path)
 
 					return qlog.NewConnectionTracer(fp, p, ci)
 				},
@@ -102,7 +106,8 @@ func main() {
 
 	http.HandleFunc("/moq", func(rw http.ResponseWriter, r *http.Request) {
 		var (
-			session *webtransport.Session
+			session  *webtransport.Session
+			qlogPath string
 		)
 
 		if session, err = server.Upgrade(rw, r); err != nil {
@@ -110,13 +115,18 @@ func main() {
 			return
 		}
 
+		if qlogPath, err = awt.GetQlogPath(session, &allQlogPaths); err != nil {
+			log.Error(fmt.Sprintf("tls: %s\n", err))
+			return
+		}
+
 		namespace := r.URL.Path
 		log.Info(fmt.Sprintf("%s - Accepted incoming WebTransport session. rawQuery: %s", namespace, r.URL.RawQuery))
 
-		moqconnectionmanagment.MoqConnectionManagment(session, namespace, moqtFwdTable, objects, *objExpMs)
+		moqconnectionmanagment.MoqConnectionManagment(session, namespace, moqtFwdTable, objects, *objExpMs, qlogPath)
 	})
 
-	go ServeHTTP(*staticDir)
+	go awt.ServeHTTP(*staticDir)
 
 	log.Info("Launching WebTransport server at: ", server.H3.Addr)
 	if err := server.ListenAndServe(); err != nil {

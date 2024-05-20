@@ -22,7 +22,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func MoqConnectionManagment(session *webtransport.Session, namespace string, moqtFwdTable *moqfwdtable.MoqFwdTable, objects *moqmessageobjects.MoqMessageObjects, objExpMs uint64) {
+func MoqConnectionManagment(session *webtransport.Session, namespace string, moqtFwdTable *moqfwdtable.MoqFwdTable, objects *moqmessageobjects.MoqMessageObjects, objExpMs uint64, qlog string) {
 
 	// Accept bidirectional streams (control stream)
 	stream, err := session.AcceptStream(session.Context())
@@ -60,7 +60,7 @@ func MoqConnectionManagment(session *webtransport.Session, namespace string, moq
 		return
 	}
 
-	moqSession := moqsession.New(namespace+"/"+uuid.New().String(), moqSetupResponse.Version, moqSetup.Role)
+	moqSession := moqsession.New(namespace+"/"+uuid.New().String(), moqSetupResponse.Version, moqSetup.Role, qlog)
 	errAddSession := moqtFwdTable.AddSession(moqSession)
 	if errAddSession != nil {
 		log.Error(fmt.Sprintf("%s - Error adding session %s. Err: %v", moqSession.UniqueName, moqSession.UniqueName, errAddSession))
@@ -454,6 +454,9 @@ func startListeningObjects(session *webtransport.Session, moqSession *moqsession
 }
 
 func startForwardingObjects(session *webtransport.Session, moqSession *moqsession.MoqSession, objects *moqmessageobjects.MoqMessageObjects) {
+	var (
+		err error
+	)
 	bExit := false
 	for bExit == false {
 		// Get next object cache key
@@ -471,13 +474,19 @@ func startForwardingObjects(session *webtransport.Session, moqSession *moqsessio
 						log.Error(fmt.Sprintf("%s(-) - Opening stream to send OBJECT %s", moqSession.UniqueName, moqObj.GetDebugStr()))
 					} else {
 						log.Info(fmt.Sprintf("%s(%v) - Sending OBJECT %s", moqSession.UniqueName, sUni.StreamID(), moqObj.GetDebugStr()))
+						moqSession.SetSendStartTimestamp()
 						errSendObj := moqhelpers.SendObject(sUni, moqObj)
+						moqSession.SetSendStopTimestamp()
 						if errSendObj != nil {
 							log.Error(fmt.Sprintf("%s(%v) - Sending OBJECT %s. Err: %v", moqSession.UniqueName, sUni.StreamID(), moqObj.GetDebugStr(), errSendObj))
 						} else {
 							log.Info(fmt.Sprintf("%s(%v) - Sent OBJECT %s", moqSession.UniqueName, sUni.StreamID(), moqObj.GetDebugStr()))
 						}
 						sUni.Close()
+
+						if err = moqSession.SetETP(); err != nil {
+							log.Debug("failed to calculate ETP")
+						}
 					}
 				}(moqObj, session, moqSession)
 			}

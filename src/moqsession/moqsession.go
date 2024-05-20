@@ -8,6 +8,7 @@ package moqsession
 
 import (
 	"errors"
+	"facebookexperimental/moq-go-server/awt"
 	"facebookexperimental/moq-go-server/moqhelpers"
 	"fmt"
 	"strings"
@@ -71,12 +72,38 @@ type MoqSession struct {
 	// Channel notify new objects
 	channelObject chan string
 
+	// AWT extension
+	// path to qlog file
+	qlog awt.Qlog
+	// send timestamps
+	from, to time.Duration
+	// most recent etp
+	etp uint64
+
 	lock *sync.RWMutex
 }
 
-func New(uniqueName string, version moqhelpers.MoqVersion, role moqhelpers.MoqRole) *MoqSession {
+func New(uniqueName string, version moqhelpers.MoqVersion, role moqhelpers.MoqRole, qlogPath string) *MoqSession {
+	var (
+		qlog awt.Qlog
+	)
+
+	// should error check here, but will assume success here
+	qlog, _ = awt.NewQlog(qlogPath)
+
 	now := time.Now()
-	s := MoqSession{UniqueName: uniqueName, CreatedAt: now, Version: version, Role: role, namespaces: map[string]map[uint64]string{}, tracks: map[string]MoqMessageSubscribeExtended{}, channelObject: make(chan string, SUBSCRIBER_INTERNAL_QUEUE_SIZE), channelSubscribe: make(chan MoqSubscribeChannelMessage, SUBSCRIBER_INTERNAL_QUEUE_SIZE), channelSubscribeResponse: make(chan MoqSubscribeResponseChannelMessage, SUBSCRIBER_INTERNAL_QUEUE_SIZE), lock: new(sync.RWMutex)}
+	s := MoqSession{
+		UniqueName:               uniqueName,
+		CreatedAt:                now,
+		Version:                  version,
+		Role:                     role,
+		namespaces:               map[string]map[uint64]string{},
+		tracks:                   map[string]MoqMessageSubscribeExtended{},
+		channelObject:            make(chan string, SUBSCRIBER_INTERNAL_QUEUE_SIZE),
+		channelSubscribe:         make(chan MoqSubscribeChannelMessage, SUBSCRIBER_INTERNAL_QUEUE_SIZE),
+		channelSubscribeResponse: make(chan MoqSubscribeResponseChannelMessage, SUBSCRIBER_INTERNAL_QUEUE_SIZE), lock: new(sync.RWMutex),
+		qlog: qlog,
+	}
 
 	return &s
 }
@@ -268,4 +295,18 @@ func (s *MoqSession) forwardSubscribeResponseStop() {
 	subscribeResponseStop := MoqSubscribeResponseChannelMessage{noOp{}, moqhelpers.InternalId, true}
 
 	s.channelSubscribeResponse <- subscribeResponseStop
+}
+
+func (s *MoqSession) SetSendStartTimestamp() {
+	s.from = s.qlog.GetTimeSinceRefTime()
+}
+
+func (s *MoqSession) SetSendStopTimestamp() {
+	s.to = s.qlog.GetTimeSinceRefTime()
+}
+
+func (s *MoqSession) SetETP() (err error) {
+	s.etp, err = s.qlog.GetTimestampETP(s.from, s.to)
+	fmt.Println("ETP: ", s.etp)
+	return
 }

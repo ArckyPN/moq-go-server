@@ -80,3 +80,10 @@ func readToEOF(reader io.Reader) (buf []byte, err error) {
 
 	return
 }
+
+func sum(arr []uint64) (t uint64) {
+	for _, a := range arr {
+		t += a
+	}
+	return
+}
