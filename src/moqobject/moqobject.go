@@ -112,3 +112,7 @@ func (r *moqMessageObjectReader) Read(p []byte) (int, error) {
 	r.offset += n
 	return n, nil
 }
+
+func (m *MoqObject) Len() int {
+	return len(m.buffer)
+}
