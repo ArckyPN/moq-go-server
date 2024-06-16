@@ -1,33 +1,16 @@
 package awt
 
 import (
-	"bytes"
+	"bufio"
 	"encoding/json"
+	"fmt"
+	"log"
 	"os"
 	"regexp"
-	"strconv"
-	"time"
 
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/webtransport-go"
 )
-
-// relevant QLOG entry
-type QLogEntry struct {
-	// offset time from reference time in ms
-	Time float64 `json:"time"`
-	// name of the event
-	Name string `json:"name"`
-	// relevant data
-	Data struct {
-		SmoothedRTT      float64 `json:"smoothed_rtt"`
-		LatestRTT        float64 `json:"latest_rtt"`
-		RTTVariance      float64 `json:"rtt_variance"`
-		CongestionWindow uint64  `json:"congestion_window,omitempty"`
-		BytesInFlight    uint64  `json:"bytes_in_flight"`
-		PacketsInFlight  uint64  `json:"packets_in_flight,omitempty"`
-	} `json:"data"`
-}
 
 func GetQlogPath(session *webtransport.Session, allQlogPaths *[]string) (p string, err error) {
 	var (
@@ -50,95 +33,114 @@ func GetQlogPath(session *webtransport.Session, allQlogPaths *[]string) (p strin
 	return
 }
 
+type QLogEntry struct {
+	Time *float64 `json:"time"`
+	Name *string  `json:"name"`
+	Data *struct {
+		Header *struct {
+			PacketType   *string `json:"packet_type"`
+			PacketNumber *uint64 `json:"packet_number"`
+			KeyPhaseBit  *string `json:"key_phase_bit"`
+		} `json:"header"`
+		Raw *struct {
+			Length *uint64 `json:"length"`
+		} `json:"raw"`
+		Frames *[]struct {
+			FrameType *string `json:"frame_type"`
+			StreamID  *int64  `json:"stream_id"`
+			Offset    *uint64 `json:"offset"`
+			Length    *uint64 `json:"length"`
+		} `json:"frames"`
+	} `json:"data"`
+}
+
+func (q *QLogEntry) isNil() bool {
+	if q.Time == nil {
+		return true
+	}
+	if q.Data == nil {
+		return true
+	}
+	if q.Data.Raw == nil {
+		return true
+	}
+	if q.Data.Raw.Length == nil {
+		return true
+	}
+	if q.Data.Frames == nil {
+		return true
+	}
+	for _, frame := range *q.Data.Frames {
+		if frame.StreamID == nil {
+			return true
+		}
+	}
+
+	return false
+}
+
 type Qlog struct {
 	// path to qlog file
-	Path string
-
-	// reference time from qlog file
-	refTime time.Time
+	path string
 }
 
 func NewQlog(path string) (q Qlog, err error) {
 	q = Qlog{
-		Path: path,
-	}
-
-	if err = q.setRefTime(); err != nil {
-		return
+		path: path,
 	}
 
 	return
 }
 
-func (q *Qlog) GetTimestampETP(from, to time.Duration) (etp uint64, err error) {
+func (q *Qlog) FromStreamID(streamID uint64, size int) (etp uint64, err error) {
 	var (
-		buf       []byte
-		lines     [][]byte
-		etpValues []uint64
+		file       *os.File
+		scanner    *bufio.Scanner
+		regex      *regexp.Regexp
+		buf        []byte
+		start, end *float64
 	)
 
-	if buf, err = os.ReadFile(q.Path); err != nil {
+	regex = regexp.MustCompile(fmt.Sprintf(`"stream_id":%d`, streamID))
+
+	if file, err = os.Open(q.path); err != nil {
+		log.Printf("Error: %s\n", err)
 		return
 	}
+	defer file.Close()
 
-	lines = bytes.Split(buf, []byte("\n"))
+	scanner = bufio.NewScanner(file)
 
-	for _, line := range lines {
-		var (
-			entry QLogEntry
-			value uint64
-		)
+	for scanner.Scan() {
+		buf = scanner.Bytes()
 
-		if err = json.Unmarshal(line, &entry); err != nil {
-			return
-		}
-
-		if entry.Time < float64(from) {
+		if !regex.Match(buf) {
 			continue
 		}
-		if entry.Time > float64(to) {
-			break
+		var (
+			entry QLogEntry
+		)
+
+		if err = json.Unmarshal(buf, &entry); err != nil {
+			err = nil
+			continue
+		}
+		if entry.isNil() {
+			continue
 		}
 
-		value = uint64((float64(entry.Data.BytesInFlight) * 8) / entry.Data.SmoothedRTT)
-		etpValues = append(etpValues, value)
+		if start == nil {
+			start = entry.Time
+			continue
+		}
+		end = entry.Time
 	}
 
-	if len(etpValues) <= 0 {
+	if start == nil || end == nil {
 		return
 	}
 
-	etp = sum(etpValues) / uint64(len(etpValues))
-
-	return
-}
-
-func (q *Qlog) GetTimeSinceRefTime() time.Duration {
-	return time.Since(q.refTime)
-}
-
-func (q *Qlog) setRefTime() (err error) {
-	var (
-		buf     []byte
-		refStr  string
-		regex   *regexp.Regexp = regexp.MustCompile(`"reference_time":(?P<time>\d*\.\d*)`)
-		matches []string
-		ref     float64
-	)
-
-	if buf, err = os.ReadFile(q.Path); err != nil {
-		return
-	}
-
-	matches = regex.FindStringSubmatch(string(buf))
-
-	refStr = matches[regex.SubexpIndex("time")]
-
-	if ref, err = strconv.ParseFloat(refStr, 64); err != nil {
-		return
-	}
-
-	q.refTime = time.Unix(0, int64(ref*float64(time.Millisecond)))
+	etp = uint64(float64(size*8) / (*end - *start))
 
 	return
 }

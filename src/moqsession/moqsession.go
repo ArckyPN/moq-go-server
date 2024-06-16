@@ -297,16 +297,14 @@ func (s *MoqSession) forwardSubscribeResponseStop() {
 	s.channelSubscribeResponse <- subscribeResponseStop
 }
 
-func (s *MoqSession) SetSendStartTimestamp() {
-	s.from = s.qlog.GetTimeSinceRefTime()
-}
+func (s *MoqSession) CalculateETP(streamID uint64, size int) (err error) {
+	if s.etp, err = s.qlog.FromStreamID(streamID, size); err != nil {
+		return
+	}
 
-func (s *MoqSession) SetSendStopTimestamp() {
-	s.to = s.qlog.GetTimeSinceRefTime()
-}
-
-func (s *MoqSession) SetETP() (err error) {
-	s.etp, err = s.qlog.GetTimestampETP(s.from, s.to)
-	fmt.Println("ETP: ", s.etp)
 	return
+}
+
+func (s *MoqSession) GetETP() uint64 {
+	return s.etp
 }
