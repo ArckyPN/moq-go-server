@@ -33,7 +33,7 @@ func ServeHTTP(staticDir string) {
 		return
 	}
 
-	limiter.SetBandwidth([]Trajectory{{Speed: 5000, Duration: 0, Latency: 50}})
+	// limiter.SetBandwidth([]Trajectory{{Speed: 5000, Duration: 0, Latency: 50}})
 
 	// static file host
 	handler.Handle("/", Cors(http.FileServer(http.Dir(staticDir))))
