@@ -8,17 +8,21 @@ package moqmessageobjects
 
 import (
 	"errors"
+	"facebookexperimental/moq-go-server/awt"
 	"facebookexperimental/moq-go-server/moqobject"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
 )
 
 // File Definition of files
 type MoqMessageObjects struct {
-	dataMap map[string]*moqobject.MoqObject
+	// map[cacheKey]map[bitrate]MoqObject
+	dataMap map[string]map[uint64]*moqobject.MoqObject
 
 	// FilesLock Lock used to write / read files
 	mapLock *sync.RWMutex
@@ -29,7 +33,7 @@ type MoqMessageObjects struct {
 
 // New Creates a new mem files map
 func New(housekeepingPeriodMs uint64) *MoqMessageObjects {
-	moqtObjs := MoqMessageObjects{dataMap: map[string]*moqobject.MoqObject{}, mapLock: new(sync.RWMutex), cleanUpChannel: make(chan bool)}
+	moqtObjs := MoqMessageObjects{dataMap: map[string]map[uint64]*moqobject.MoqObject{}, mapLock: new(sync.RWMutex), cleanUpChannel: make(chan bool)}
 
 	if housekeepingPeriodMs > 0 {
 		moqtObjs.startCleanUp(housekeepingPeriodMs)
@@ -38,27 +42,65 @@ func New(housekeepingPeriodMs uint64) *MoqMessageObjects {
 	return &moqtObjs
 }
 
-func (moqtObjs *MoqMessageObjects) Create(cacheKey string, objHeader moqobject.MoqObjectHeader, defObjExpirationS uint64) (moqObj *moqobject.MoqObject, err error) {
+func (moqtObjs *MoqMessageObjects) Create(cacheKey string, objHeader moqobject.MoqObjectHeader, defObjExpirationS uint64) (moqObjs map[uint64]*moqobject.MoqObject, err error) {
 	moqtObjs.mapLock.Lock()
 	defer moqtObjs.mapLock.Unlock()
 
-	foundObj, found := moqtObjs.dataMap[cacheKey]
-	if found && !foundObj.GetEof() {
+	_, found := moqtObjs.dataMap[cacheKey]
+	if found /* && !foundObj.GetEof() */ {
 		err = errors.New("We can NOT override on open object")
 		return
 	}
 
-	moqObj = moqobject.New(objHeader, defObjExpirationS)
-	moqtObjs.dataMap[cacheKey] = moqObj
+	// create a new Object for every Quality (bitrate)
+	moqObjs = map[uint64]*moqobject.MoqObject{}
+	for _, quality := range awt.EncoderSettings {
+		moqObj := moqobject.New(objHeader, defObjExpirationS)
+		moqObjs[quality.Bitrate] = moqObj
+	}
+	moqtObjs.dataMap[cacheKey] = moqObjs
 
 	return
 }
 
-func (moqtObjs *MoqMessageObjects) Get(cacheKey string) (moqObjRet *moqobject.MoqObject, found bool) {
+// gets the best fitting MoqObject by bitrate
+func (moqtObjs *MoqMessageObjects) get(cacheKey string, etp uint64) (moqObjRet *moqobject.MoqObject, found bool) {
 	moqtObjs.mapLock.RLock()
 	defer moqtObjs.mapLock.RUnlock()
 
-	moqObjRet, found = moqtObjs.dataMap[cacheKey]
+	var (
+		bestFitBitrate uint64
+		bitrates       []uint64
+		objs           map[uint64]*moqobject.MoqObject
+	)
+
+	if objs, found = moqtObjs.dataMap[cacheKey]; !found {
+		return
+	}
+	bitrates = maps.Keys(objs)
+	slices.Sort(bitrates)
+
+	for _, br := range bitrates {
+		if br <= etp {
+			bestFitBitrate = br
+		}
+		if br > etp {
+			break
+		}
+	}
+
+	// no fitting bitrate found, use the lowest
+	if !slices.Contains(bitrates, bestFitBitrate) {
+		return objs[bitrates[0]], true
+	}
+
+	moqObjRet = objs[bestFitBitrate]
+
+	return
+}
+
+func (moqtObjs *MoqMessageObjects) Get(cacheKey string, bitrate uint64) (moqObjRet *moqobject.MoqObject, found bool) {
+	moqObjRet, found = moqtObjs.get(cacheKey, bitrate)
 
 	return
 }
@@ -116,10 +158,12 @@ func (moqtObjs *MoqMessageObjects) cacheCleanUp(now time.Time) {
 	numStartElements := len(moqtObjs.dataMap)
 
 	// Check for expired files
-	for key, obj := range moqtObjs.dataMap {
-		if obj.MaxAgeS >= 0 && obj.GetEof() {
-			if obj.ReceivedAt.Add(time.Second * time.Duration(obj.MaxAgeS)).Before(now) {
-				objectsToDel[key] = obj
+	for key, objs := range moqtObjs.dataMap {
+		for _, obj := range objs {
+			if obj.MaxAgeS >= 0 && obj.GetEof() {
+				if obj.ReceivedAt.Add(time.Second * time.Duration(obj.MaxAgeS)).Before(now) {
+					objectsToDel[key] = obj
+				}
 			}
 		}
 	}

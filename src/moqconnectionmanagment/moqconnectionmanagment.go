@@ -8,6 +8,7 @@ package moqconnectionmanagment
 
 import (
 	"errors"
+	"facebookexperimental/moq-go-server/awt"
 	"facebookexperimental/moq-go-server/moqfwdtable"
 	"facebookexperimental/moq-go-server/moqhelpers"
 	"facebookexperimental/moq-go-server/moqmessageobjects"
@@ -444,7 +445,7 @@ func startListeningObjects(session *webtransport.Session, moqSession *moqsession
 				log.Error(fmt.Sprintf("%s(%v) - Error receiving obj payload. Err: %v", moqSession.UniqueName, (*uniStream).StreamID(), errObjPayload))
 				return
 			}
-			log.Info(fmt.Sprintf("%s(%v) - Received obj, Obj: %s", moqSession.UniqueName, (*uniStream).StreamID(), moqObj.GetDebugStr()))
+			log.Info(fmt.Sprintf("%s(%v) - Received obj, Obj: %s", moqSession.UniqueName, (*uniStream).StreamID(), moqObj[awt.EncoderSettings[0].Bitrate].GetDebugStr()))
 
 		}(&uniStream, session, moqtFwdTable)
 	}
@@ -464,7 +465,7 @@ func startForwardingObjects(session *webtransport.Session, moqSession *moqsessio
 		if cacheKey == "" {
 			bExit = true
 		} else {
-			moqObj, found := objects.Get(cacheKey)
+			moqObj, found := objects.Get(cacheKey, moqSession.GetETP())
 			if !found {
 				log.Error(fmt.Sprintf("%s - Not found OBJECT key %s in cache", moqSession.UniqueName, cacheKey))
 			} else {
@@ -474,9 +475,7 @@ func startForwardingObjects(session *webtransport.Session, moqSession *moqsessio
 						log.Error(fmt.Sprintf("%s(-) - Opening stream to send OBJECT %s", moqSession.UniqueName, moqObj.GetDebugStr()))
 					} else {
 						log.Info(fmt.Sprintf("%s(%v) - Sending OBJECT %s", moqSession.UniqueName, sUni.StreamID(), moqObj.GetDebugStr()))
-						moqSession.SetSendStartTimestamp()
 						errSendObj := moqhelpers.SendObject(sUni, moqObj)
-						moqSession.SetSendStopTimestamp()
 						if errSendObj != nil {
 							log.Error(fmt.Sprintf("%s(%v) - Sending OBJECT %s. Err: %v", moqSession.UniqueName, sUni.StreamID(), moqObj.GetDebugStr(), errSendObj))
 						} else {
@@ -484,7 +483,7 @@ func startForwardingObjects(session *webtransport.Session, moqSession *moqsessio
 						}
 						sUni.Close()
 
-						if err = moqSession.SetETP(); err != nil {
+						if err = moqSession.CalculateETP(uint64(sUni.StreamID()), moqObj.Len()); err != nil {
 							log.Debug("failed to calculate ETP")
 						}
 					}

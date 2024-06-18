@@ -5,4 +5,4 @@ certs/
 __debug_bin
 src/go-media-webtransport-server
 .DS_Store
-src/tmp
+tmp/

@@ -8,10 +8,13 @@ package moqhelpers
 
 import (
 	"errors"
+	"facebookexperimental/moq-go-server/awt"
 	"facebookexperimental/moq-go-server/moqhelpers/quichelpers"
 	"facebookexperimental/moq-go-server/moqobject"
 	"fmt"
 	"io"
+	"os"
+	"sync"
 
 	"golang.org/x/exp/slices"
 )
@@ -434,24 +437,58 @@ func receiveObjectHeader(stream quichelpers.IWtReadableStream) (moqObjHeader moq
 	return
 }
 
-func ReadObjPayloadToEOS(stream quichelpers.IWtReadableStream, moqObj *moqobject.MoqObject) error {
-	// rx Obj payload
+var (
+	VideoCounter int
+)
 
-	buf := make([]byte, READ_BLOCK_SIZE_BYTES)
-	var err error
-	n := 0
-	for {
-		n, err = stream.Read(buf)
-		if (err == nil || err == io.EOF) && n > 0 {
-			moqObj.PayloadWrite(buf[:n])
-		}
-		if err != nil {
-			break
-		}
+func ReadObjPayloadToEOS(stream quichelpers.IWtReadableStream, moqObjs map[uint64]*moqobject.MoqObject) error {
+	// rx Obj payload
+	var (
+		err error
+		wg  sync.WaitGroup
+		loc awt.LocPackager = awt.NewLocPackager()
+	)
+
+	if err = loc.Decode(stream); err != nil {
+		return err
 	}
 
+	if loc.MediaType == "video" {
+		if VideoCounter > 9 && VideoCounter < 20 {
+			os.WriteFile(fmt.Sprintf("../../data/%s-%d.mp4", loc.MediaType, VideoCounter), loc.Data, os.ModePerm)
+		}
+		VideoCounter++
+	}
+
+	// encode all qualities concurrently
+	for _, quality := range awt.EncoderSettings {
+		wg.Add(1)
+		go func(q awt.EncoderQuality) {
+			defer wg.Done()
+
+			var (
+				buf     []byte
+				newLocs awt.LocPackager = loc.Copy()
+			)
+
+			if newLocs.Data, err = awt.Encode(loc.Data, q); err != nil {
+				return
+			}
+
+			if buf, err = newLocs.Encode(); err != nil {
+				return
+			}
+
+			moqObjs[q.Bitrate].PayloadWrite(buf)
+		}(quality)
+	}
+
+	wg.Wait()
+
 	if err == io.EOF {
-		moqObj.SetEof()
+		for _, quality := range awt.EncoderSettings {
+			moqObjs[quality.Bitrate].SetEof()
+		}
 		return nil
 	}
 	return err
